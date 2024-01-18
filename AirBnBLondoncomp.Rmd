@@ -1,0 +1,1367 @@
+---
+title: "AirBnB London"
+author: "Saurabh Damle, Sai Teja Burla, Nakul Havaldar, Meet Palod"
+date: "2023-11-13"
+output: html_document
+---
+
+### Analysis 1
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(broom)
+library(mgcv)
+library(metR)
+library(ggmap)
+```
+
+```{r}
+london_weekday = read.csv('london_weekdays.csv')
+london_weekend = read.csv('london_weekends.csv')
+
+london_weekday <- london_weekday[order(london_weekday$room_type), ]
+london_weekday$room_type <- as.numeric(as.factor(london_weekday$room_type))
+london_weekday$room_shared = ifelse(london_weekday$room_shared == "False", 0, 1)
+london_weekday$room_private = ifelse(london_weekday$room_private == "False", 0, 1)
+london_weekday$host_is_superhost = ifelse(london_weekday$host_is_superhost == "False", 0, 1)
+
+london_weekend <- london_weekend[order(london_weekend$room_type), ]
+london_weekend$room_type <- as.numeric(as.factor(london_weekend$room_type))
+london_weekend$room_shared = ifelse(london_weekend$room_shared == "False", 0, 1)
+london_weekend$room_private = ifelse(london_weekend$room_private == "False", 0, 1)
+london_weekend$host_is_superhost = ifelse(london_weekend$host_is_superhost == "False", 0, 1)
+```
+
+
+```{r, fig.height=3, fig.width=10}
+#cwd <- combined %>% 
+#  filter(day_type == "Weekday") 
+#cwd <- cwd %>%
+#  select(-X, -room_type, -room_shared, -room_private, -host_is_superhost, -day_type)
+
+corr_cwd <- cor(london_weekday)
+corr_cwd <- reshape2::melt(corr_cwd)
+
+ggplot(corr_cwd %>% filter(Var2 == "realSum" & Var1 != "realSum"), aes(Var1, Var2, fill = value, label = round(value, 2))) +
+  geom_tile(color = "white") +
+  geom_text(color = "white", size = 4) +
+  scale_fill_gradient2(low = "#440154", mid = "#21918C", high = "#FDE725", midpoint = 0, limit = c(-1, 1), space = "Lab", name = "Correlation") +
+  ggtitle("Correlation Plot for Price of Listings") +
+  xlab("Variables") + ylab("Price of Listing") +
+  labs(subtitle = "Weekday Data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 10, hjust = 1)) +
+  coord_fixed()
+```
+
+```{r, fig.height=3, fig.width=10}
+#cwe <- combined %>% 
+#  filter(day_type == "Weekend") %>%
+#  select(-X, -room_type, -room_shared, -room_private, -host_is_superhost, -day_type)
+
+corr_cwe <- cor(london_weekend)
+corr_cwe <- reshape2::melt(corr_cwe)
+
+ggplot(corr_cwe %>% filter(Var2 == "realSum" & Var1 != "realSum"), aes(Var1, Var2, fill = value, label = round(value, 2))) +
+  geom_tile(color = "white") +
+  geom_text(color = "white", size = 4) +
+  scale_fill_gradient2(low = "#440154", mid = "#21918C", high = "#FDE725", midpoint = 0, limit = c(-1, 1), space = "Lab", name = "Correlation") +
+  ggtitle("Correlation Plot for Price of Listings") +
+  xlab("Variables") + ylab("Price of Listing") +
+  labs(subtitle = "Weekend Data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 10, hjust = 1)) +
+  coord_fixed()
+```
+
+```{r}
+london_weekday = read.csv('london_weekdays.csv')
+london_weekend = read.csv('london_weekends.csv')
+london_weekday$day_type = 'Weekday'
+london_weekend$day_type = 'Weekend'
+
+combined <- rbind(london_weekday, london_weekend)
+```
+
+```{r}
+ggplot(data = combined) +
+  geom_boxplot(aes(y = realSum)) +
+  ggtitle("Box Plot of Listing Price") +
+  xlab("") + ylab("Price per Night (EUR)") +
+  labs(subtitle = "Price Variable Outliers") +
+  theme_classic()
+```
+
+```{r}
+ggplot(data = combined) +
+  geom_boxplot(aes(y = dist)) +
+  ggtitle("Box Plot of Listing's Distance from City Center") +
+  xlab("") + ylab("Distance (km)") +
+  labs(subtitle = "Distance Variable Outliers") +
+  theme_classic()
+```
+
+```{r}
+ggplot(data = combined) +
+  geom_bar(aes(x = room_type, y = after_stat(count), fill = room_type)) +
+  ggtitle("Bar Plot of Room Type") +
+  xlab("Room Type") + ylab("Count") +
+  labs(subtitle = "Type of Listing") +
+  scale_fill_viridis_d() +
+  theme_classic()
+```
+
+```{r}
+ggplot(data = combined) +
+  geom_bar(aes(x = person_capacity, y = after_stat(count), fill = as.factor(person_capacity))) +
+  ggtitle("Bar Plot of Person Capacity") +
+  xlab("Person Capacity") + ylab("Count") +
+  labs(subtitle = "Room Capacity") +
+  scale_fill_viridis_d(name = "Person Capacity") +
+  theme_classic()
+```
+
+```{r}
+london_cleaned <- combined %>%
+  filter(room_type != "Shared room") %>%
+  filter(dist < 13) %>%
+  filter(realSum < 1000) %>%
+  select(day_type, lng, lat, room_type, person_capacity, dist, realSum) %>%
+  mutate(person_capacity = ifelse(person_capacity == 6, 5, as.integer(person_capacity)))
+```
+
+```{r}
+ggplot() +
+  geom_density(data = london_cleaned, aes(x = realSum, after_stat(count), fill = day_type, group = day_type), alpha = 0.4) +
+  scale_fill_viridis_d(name = "Part of the Week", direction = -1) +
+  ggtitle("Density Plot for Price per Night") +
+  xlab("Price per Night (Pounds)") + ylab("Count") +
+  labs(subtitle = "Weekday and Weekend Data") +
+  theme_classic()
+```
+
+```{r, fig.height=7, fig.width = 9}
+ggplot(data = london_cleaned, aes(x = dist, y = realSum, color = as.factor(person_capacity))) + 
+  geom_point(size = 2, shape = 16, alpha = 0.35) +
+  geom_smooth(method = gam, color = "black", alpha = 0.5) +
+  facet_grid(day_type~room_type, labeller = label_both) +
+  scale_color_viridis_d(name = "Room Capacity") +
+  ggtitle("Scatter Plot of Combined Data") +
+  xlab("Distance (km)") + ylab("Price (EUR)") +
+  labs(subtitle = "Distance vs Price, Colored by Room Capacity, Faceted by Room Type and Day Type") +
+  theme_classic()
+```
+
+```{r}
+london_grouped <- london_cleaned %>%
+  select(room_type, person_capacity, dist, realSum, day_type) %>%
+  group_by(room_type, person_capacity, day_type) %>%
+  summarize(avg_distance = mean(dist), 
+            avg_price = mean(realSum),
+            .groups = 'keep'
+  )
+```
+
+```{r}
+ggplot(data = london_grouped) +
+  geom_point(aes(x = person_capacity, y = avg_price, group = room_type, color = room_type)) + 
+  geom_line(aes(x = person_capacity, y = avg_price, group = room_type, color = room_type)) +
+  facet_grid(~day_type, labeller = label_both) +
+  scale_color_viridis_d(name = "Room Type") +
+  ggtitle("Line Plot of Average Price") +
+  xlab("Room Capacity") + ylab("Average Price") +
+  labs(subtitle = "Average Values for Price across Room Capacities\nColored by Room Type\nFaceted by Time of the Week") +
+  theme_classic()
+```
+
+```{r}
+ggplot(data = london_grouped) +
+  geom_point(aes(x = person_capacity, y = avg_distance, group = room_type, color = room_type)) + 
+  geom_line(aes(x = person_capacity, y = avg_distance, group = room_type, color = room_type)) +
+  facet_grid(~day_type, labeller = label_both) +
+  scale_color_viridis_d(name = "Room Type") +
+  ggtitle("Line Plot of Average Distance") +
+  xlab("Room Capacity") + ylab("Average Distance") +
+  labs(subtitle = "Average Values for Distance across Room Capacities\nColored by Room Type\nFaceted by Time of the Week") +
+  theme_classic()
+```
+
+```{r}
+lwd <- london_cleaned %>%
+  filter(day_type == "Weekday")
+lwe <- london_cleaned %>%
+  filter(day_type == "Weekend")
+
+wdl <- lwd %>% select(lng, lat)
+wdl <- wdl[!duplicated(wdl), ]
+wel <- lwe %>% select(lng, lat)
+wel <- wel[!duplicated(wel), ]
+
+common_locations <- wdl %>%
+  inner_join(wel, by = join_by(lng == lng, lat == lat))
+```
+
+```{r}
+london_weekday_common <- lwd %>%
+  inner_join(common_locations, by = join_by(lng == lng, lat == lat)) %>%
+  dplyr::rename("weekday_price" = "realSum")
+london_weekday_common <- london_weekday_common[!duplicated(london_weekday_common[, c("lng", "lat")]), ]
+```
+
+```{r}
+london_weekend_common <- lwe %>%
+  inner_join(common_locations, by = join_by(lng == lng, lat == lat)) %>%
+  dplyr::rename("weekend_price" = "realSum")
+london_weekend_common <- london_weekend_common[!duplicated(london_weekend_common[, c("lng", "lat")]), ]
+```
+
+```{r}
+london_common <- london_weekday_common %>%
+  inner_join(london_weekend_common %>% select(lng, lat, weekend_price), by = join_by(lng == lng, lat == lat)) %>%
+  select(-day_type)
+london_common$price_higher[(london_common$weekday_price - london_common$weekend_price) > 0] <- "Weekdays"
+london_common$price_higher[(london_common$weekday_price - london_common$weekend_price) == 0] <- "Same"
+london_common$price_higher[(london_common$weekday_price - london_common$weekend_price) < 0] <- "Weekends"
+london_common$ratio = london_common$weekday_price / london_common$weekend_price
+head(london_common, 5)
+```
+
+```{r}
+ggplot(data = london_common, aes(x = (weekday_price - weekend_price), y = after_stat(count))) + 
+  geom_density(fill = "#3B528B", alpha = 0.4) + 
+  ggtitle("Density Plot for Price Difference on Weekday and Weekend Data") +
+  xlab("Count") + ylab("Price Difference") +
+  labs(subtitle = "Negative -> Price Higher on Weekends \nPositive -> Price Higher on Weekdays") +
+  theme_classic()
+```
+
+```{r, fig.height=8, fig.width=12, warning=FALSE}
+api_key <- "AIzaSyCDXjJr2S8veUhq9yMttKfHTQTYtfSoJRA"
+register_google(key = api_key)
+london_map <- get_map(location = c(lon = -0.11, lat = 51.5), zoom = 11, color = "bw")
+
+ggmap(london_map)+
+  geom_point(data = london_common, aes(x = lng, y = lat, color = price_higher, size = abs(weekday_price - weekend_price)), shape = 16, alpha = 0.5) + 
+  scale_color_viridis_d() +
+  xlab("") + 
+  ylab("") +
+  theme_classic()
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = london_common, aes(x = dist, y = log(ratio), group = room_type, color = as.factor(person_capacity))) +
+  geom_line() +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(direction = -1) +
+  ggtitle("Line Plot for Price Ratio between Weekdays and Weekends") +
+  xlab("Distance (km)") + ylab("Price Ratio") +
+  labs(subtitle = "Ratio Value: \nNegative -> Price Higher on Weekends \nPositive -> Price Higher on Weekdays") +
+  theme_minimal()
+```
+
+```{r}
+london_common_grouped <- london_common %>%
+  select(room_type, person_capacity, dist, weekday_price, weekend_price) %>%
+  group_by(room_type, person_capacity) %>%
+  summarize(avg_dist = mean(dist), 
+            avg_weekday_price = mean(weekday_price), 
+            avg_weekend_price = mean(weekend_price), 
+            .groups = 'keep'
+  )
+london_common_grouped
+```
+
+```{r}
+ggplot(data = london_common_grouped, aes(x = person_capacity, y = round((avg_weekday_price / avg_weekend_price), 2), color = room_type)) + 
+  geom_point() +
+  geom_line() +
+  facet_wrap(~room_type) + 
+  scale_color_viridis_d(name = "Room Type") +
+  ggtitle("Line Plot for Average Price Ratio between Weekdays and Weekends") +
+  xlab("Person Capacity") + ylab("Average Price Ratio") +
+  labs(subtitle = "Actual Data \nRatio Value: \nValue below 1 -> Price Higher on Weekends \nValue above 1 -> Price Higher on Weekdays") +
+  theme_classic()
+```
+
+
+```{r}
+grid = expand.grid(person_capacity = 2:5, room_type = c("Entire home/apt", "Private room"), dist = seq(1, 13, 0.25))
+```
+
+```{r}
+gam_weekday <- gam(data = lwd, formula = realSum ~ s(dist) + room_type * person_capacity, method = "REML")
+summary(gam_weekday)
+```
+
+```{r}
+gam_weekend <- gam(data = lwe, formula = realSum ~ s(dist) + room_type * person_capacity, method = "REML")
+summary(gam_weekend)
+```
+
+```{r}
+lwd$weekday_pred = augment(gam_weekday)$.fitted
+lwe$weekend_pred = augment(gam_weekend)$.fitted
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = lwd) +
+  geom_point(aes(x = dist, y = realSum, color = "Actual Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekday_pred, color = "Predicted Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(name = "Price") +
+  ggtitle("Plot to Show GAM Fit on Data") +
+  xlab("Distance (km)") + ylab("Price of Listing (EUR)") +
+  labs(subtitle = "Weekday Data") +
+  theme_minimal()
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = lwe) +
+  geom_point(aes(x = dist, y = realSum, color = "Actual Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekend_pred, color = "Predicted Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(name = "Price") +
+  ggtitle("Plot to Show GAM Fit on Data") +
+  xlab("Distance (km)") + ylab("Price of Listing (EUR)") +
+  labs(subtitle = "Weekend Data") +
+  theme_minimal()
+```
+
+```{r}
+predict1 = predict(gam_weekday, newdata = grid)
+predict2 = predict(gam_weekend, newdata = grid)
+result = data.frame(grid, weekday_price = as.vector(predict1), weekend_price = as.vector(predict2))
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = result) +
+  geom_point(aes(x = dist, y = weekday_price, color = "Weekday"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekend_price, color = "Weekend"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(name = "Time of the Week") +
+  ggtitle("Plot to Show GAM Predictions") +
+  xlab("Distance (km)") + ylab("Predicted Price") +
+  labs(subtitle = "Comparing Weekday and Weekend Trends") +
+  theme_minimal()
+```
+
+```{r}
+result_grouped <- result %>%
+  select(room_type, person_capacity, dist, weekday_price, weekend_price) %>%
+  group_by(room_type, person_capacity) %>%
+  summarize(avg_dist = mean(dist), 
+            avg_weekday_price = mean(weekday_price), 
+            avg_weekend_price = mean(weekend_price), 
+            .groups = 'keep'
+  )
+```
+
+```{r}
+ggplot(data = result_grouped, aes(x = person_capacity, y = round((avg_weekday_price / avg_weekend_price), 2), color = room_type)) + 
+  geom_point() +
+  geom_line() +
+  facet_wrap(~room_type) + 
+  scale_color_viridis_d(name = "Room Type") +
+  ggtitle("Line Plot for Average Price Ratio between Weekdays and Weekends") +
+  xlab("Person Capacity") + ylab("Average Price Ratio") +
+  labs(subtitle = "GAM Predicted Data \nRatio Value: \nValue below 1 -> Price Higher on Weekends \nValue above 1 -> Price Higher on Weekdays") +
+  theme_classic()
+```
+
+```{r}
+lwd <- lwd[order(lwd$room_type), ]
+lwd$room_type_num <- as.numeric(as.factor(lwd$room_type))
+
+lwe <- lwe[order(lwe$room_type), ]
+lwe$room_type_num <- as.numeric(as.factor(lwe$room_type))
+
+mapping <- lwd %>%
+  select(room_type, room_type_num) %>%
+  group_by(room_type, room_type_num)
+mapping <- mapping[!duplicated(mapping[, c("room_type", "room_type_num")]), ]
+```
+
+```{r, warning=FALSE}
+loess_weekday <- loess(data = lwd, formula = realSum ~ dist * room_type_num * person_capacity, degree = 2, span = 0.5)
+summary(loess_weekday)
+```
+
+```{r, warning=FALSE}
+loess_weekend <- loess(data = lwe, formula = realSum ~ dist * room_type_num * person_capacity, degree = 2, span = 0.5)
+summary(loess_weekend)
+```
+
+```{r}
+lwd$weekday_pred = augment(loess_weekday)$.fitted
+lwe$weekend_pred = augment(loess_weekend)$.fitted
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = lwd) +
+  geom_point(aes(x = dist, y = realSum, color = "Actual Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekday_pred, color = "Predicted Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(name = "Price") +
+  ggtitle("Plot to Show Loess Fit on Data") +
+  xlab("Distance (km)") + ylab("Price of Listing (EUR)") +
+  labs(subtitle = "Weekday Data") + 
+  theme_minimal()
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = lwe) +
+  geom_point(aes(x = dist, y = realSum, color = "Actual Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekend_pred, color = "Predicted Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity) +
+  scale_color_viridis_d(name = "Price") +
+  ggtitle("Plot to Show Loess Fit on Data") +
+  xlab("Distance (km)") + ylab("Price of Listing (EUR)") +
+  labs(subtitle = "Weekend Data") + 
+  theme_minimal()
+```
+
+```{r}
+grid = expand.grid(person_capacity = 2:5, room_type_num = c(1, 2), dist = seq(1, 13, 0.25))
+```
+
+```{r}
+predict1 = predict(loess_weekday, newdata = grid)
+predict2 = predict(loess_weekend, newdata = grid)
+result = data.frame(grid, weekday_price = as.vector(predict1), weekend_price = as.vector(predict2))
+result <- result %>%
+  inner_join(mapping, by = join_by(room_type_num == room_type_num))
+result = na.omit(result)
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = result) +
+  geom_point(aes(x = dist, y = weekday_price, color = "Weekday Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekend_price, color = "Weekend Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity) +
+  scale_color_viridis_d(name = "Time of the Week") +
+  ggtitle("Plot to Show Loess Predictions") +
+  xlab("Distance (km)") + ylab("Predicted Price") +
+  labs(subtitle = "Comparing Weekday and Weekend Trends") +
+  theme_minimal()
+```
+
+```{r}
+result_grouped <- result %>%
+  select(room_type, person_capacity, dist, weekday_price, weekend_price) %>%
+  group_by(room_type, person_capacity) %>%
+  summarize(avg_dist = mean(dist), 
+            avg_weekday_price = mean(weekday_price), 
+            avg_weekend_price = mean(weekend_price), 
+            .groups = 'keep'
+  )
+result_grouped
+```
+
+```{r}
+ggplot(data = result_grouped, aes(x = person_capacity, y = round((avg_weekday_price / avg_weekend_price), 2), color = room_type)) + 
+  geom_point() +
+  geom_line() +
+  facet_wrap(~room_type) + 
+  scale_color_viridis_d(name = "Room Type") +
+  ggtitle("Line Plot for Average Price Ratio between Weekdays and Weekends (Loess Predicted Data)") +
+  xlab("Person Capacity") + ylab("Average Price Ratio") +
+  labs(subtitle = "Ratio Value: \nValue below 1 -> Price Higher on Weekends \nValue above 1 -> Price Higher on Weekdays") +
+  theme_classic()
+```
+
+```{r}
+gam_weekday <- gam(data = lwd, formula = realSum ~ s(dist) + person_capacity, method = "REML")
+summary(gam_weekday)
+```
+
+```{r}
+gam_weekend <- gam(data = lwe,  formula = realSum ~ s(dist) + person_capacity, method = "REML")
+summary(gam_weekend)
+```
+
+```{r}
+lwd$weekday_pred = augment(gam_weekday)$.fitted
+lwe$weekend_pred = augment(gam_weekend)$.fitted
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = lwd) +
+  geom_point(aes(x = dist, y = realSum, color = "Actual Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekday_pred, color = "Predicted Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(name = "Room Type") +
+  ggtitle("Plot to Show GAM Fit on Data") +
+  xlab("Distance (km)") + ylab("Price of Listing (EUR)") +
+  labs(subtitle = "Weekday Data") +
+  theme_minimal()
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = lwe) +
+  geom_point(aes(x = dist, y = realSum, color = "Actual Price"), shape = 1, size = 0.5) +
+  geom_point(aes(x = dist, y = weekend_pred, color = "Predicted Price"), shape = 1, size = 0.5) +
+  facet_grid(room_type~person_capacity, labeller = label_both) +
+  scale_color_viridis_d(name = "Price") +
+  ggtitle("Plot to Show GAM Fit on Data") +
+  xlab("Distance (km)") + ylab("Price of Listing (EUR)") +
+  labs(subtitle = "Weekend Data") +
+  theme_minimal()
+```
+
+### Analysis 2
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(arm)
+library("viridis")
+library(mgcv)
+library(broom)
+library(ggplot2)
+library(dplyr)
+library(googleAuthR)
+library(ggmap)
+```
+
+
+```{r}
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```
+
+
+### Loading the data
+
+```{r}
+weekdays = read.csv("london_weekdays.csv")
+weekends <- read.csv("london_weekends.csv")
+df <- rbind(weekends, weekdays)
+df$day_type <- ifelse(seq_len(nrow(df)) <= 5379, "Weekend", "Weekday")
+```
+
+
+```{r}
+#statistics for weekday prices
+summary(weekdays$realSum)
+```
+```{r}
+#statistics for weekend prices
+summary(weekends$realSum)
+```
+```{r}
+#statistics for average distance from city center
+summary(df$dist)
+```
+
+```{r}
+ecdf(df$dist)(13)
+
+```
+
+
+
+```{r}
+cat("Count of all Rooms:", nrow(df))
+
+filtered_df <- df %>%
+  filter(room_type == "Shared room")
+count_shared_rooms <- nrow(filtered_df)
+cat(" \nCount of Shared Rooms:", count_shared_rooms)
+
+filtered_df <- df %>%
+  filter(room_type == "Shared room" & person_capacity >3 )
+count_shared_rooms <- nrow(filtered_df)
+cat("Count of rows where room_type is 'Shared room' and person_capacity is greater than 3:", count_shared_rooms, "\n")
+
+filtered_df <- df %>%
+  filter(person_capacity == 0 )
+listing_with_0_rooms <- nrow(filtered_df)
+cat("Count of rows where person_capacity is equal to 1:", listing_with_0_rooms, "\n")
+
+filtered_df <- df %>%
+  filter(person_capacity == 1 )
+listing_with_1_rooms <- nrow(filtered_df)
+cat("Count of rows person_capacity is equal to 1:", listing_with_1_rooms, "\n")
+
+
+filtered_df <- df %>%
+  filter(person_capacity == 2 )
+listing_with_2_rooms <- nrow(filtered_df)
+cat("Count of rows person_capacity is equal to 2:", listing_with_2_rooms, "\n")
+
+
+filtered_df <- df %>%
+  filter(dist > 13 )
+listing_farther_than_13_miles <- nrow(filtered_df)
+cat("Count of listing which are more than 13 mile from city center:", listing_farther_than_13_miles, "\n")
+
+
+```
+```{r}
+ggplot(df, aes(x = as.factor(person_capacity))) +
+  geom_bar() +
+  facet_grid(~ day_type) +
+  labs(title = "Frequency of Person Capacity",
+       x = "Person Capacity",
+       y = "Frequency")
+
+```
+
+```{r}
+# ggplot(df, aes(x = as.factor(person_capacity))) +
+#   geom_bar() +
+#   facet_grid(~ room_type) +
+#   labs(title = "Frequency of Person Capacity by Room Type",
+#        x = "Person Capacity",
+#        y = "Frequency")
+
+ggplot(df, aes(x = as.factor(person_capacity))) +
+  geom_bar() +
+  facet_grid(room_type ~ day_type) +
+  labs(title = "Frequency of Person Capacity by Room Type and Day Type",
+       x = "Person Capacity",
+       y = "Frequency")
+
+```
+
+```{r}
+ggplot(df, aes(x = realSum)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  facet_grid(~day_type) +
+  labs(title = "Smooth Frequency Plot for real_sum",
+       x = "real_sum",
+       y = "Density")
+
+```
+
+
+```{r}
+ggplot(df, aes(x = dist)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  facet_grid(~day_type) +
+  labs(title = "Smooth Frequency Plot for real_sum",
+       x = "real_sum",
+       y = "Density")
+
+```
+
+
+
+```{r, fig.width = 12, fig.height = 8}
+subset_df <- subset(df, realSum < 1000)
+subset_df <- subset(subset_df, dist < 13)
+subset_df <- subset(subset_df, room_type != "Shared room")
+subset_df <- subset_df %>%
+  mutate(person_capacity = ifelse(person_capacity == 6, 5, as.integer(person_capacity)))
+subset_df <- na.omit(subset_df)
+head(subset_df)
+
+```
+
+### Plotting the data
+
+
+```{r, fig.width = 12, fig.height = 8}
+api_key <- "AIzaSyCDXjJr2S8veUhq9yMttKfHTQTYtfSoJRA"
+register_google(key = api_key)
+london_map <- get_map(location = "London", zoom = 11)
+ggmap(london_map)+
+  geom_point(
+    data = subset_df,
+    aes(x = lng, y = lat, color = realSum),
+    size = 1.3,
+    alpha = 0.5
+  ) +
+  scale_color_gradient(name = "Price", low = "#fff200", high = "#301934") + xlab("") + ylab("") 
+```
+```{r}
+
+ggplot(subset_df, aes(x = dist, y = realSum)) +
+  geom_point()+ #+ scale_x_log10() #+ scale_y_log10() +
+  facet_grid(~day_type) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_smooth(method = "loess", col = "orange", method.args = list(degree = 1, family = "symmetric"), span = 0.5) #+
+  #geom_smooth(method = "rlm", se = FALSE, col = "pink", method.args = list(psi = psi.bisquare)) 
+  
+```
+
+
+```{r}
+
+ggplot(subset_df, aes(x = dist, y = log(realSum))) +
+  geom_point()+ #+ scale_x_log10() #+ scale_y_log10() +
+  facet_grid(~day_type) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_smooth(method = "loess", col = "orange", method.args = list(degree = 1, family = "symmetric"), span = 0.5) #+
+  #geom_smooth(method = "rlm", se = FALSE, col = "pink", method.args = list(psi = psi.bisquare)) 
+  
+```
+
+
+
+
+```{r}
+ggplot(subset_df, aes(x = realSum, fill = room_type)) +
+  geom_histogram(binwidth = 50, position = "identity", alpha = 0.7) +
+  facet_wrap(~day_type, scales = "free") +
+  labs(title = "Distribution of Airbnb Prices on Weekends and Weekdays by Room Type",
+       x = "Price",
+       y = "Frequency") +
+    theme_minimal() +
+  xlim(0, 2000) +
+  scale_fill_viridis(discrete = TRUE)
+
+```
+
+```{r}
+ggplot(subset_df, aes(x = realSum, fill = room_type)) +
+  geom_histogram(binwidth = 50, position = "dodge", alpha = 0.7) +
+  labs(title = "Distribution of Airbnb Prices on Weekends and Weekdays by Room Type",
+       x = "Price",
+       y = "Frequency") +
+  theme_minimal() +
+  xlim(0, 2000) +
+  scale_fill_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+
+
+
+From here we can understand:
+- On weekends for the same price for a private room, there are more bookings.
+- In general entire home and apartemnts are less in demand on weekends and weekdays than a private room and for the same price the demand of a entire apartment is more on weekends (as is expected)
+
+
+
+
+```{r}
+
+average_prices <- subset_df %>%
+  group_by(room_type, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices, aes(x = room_type, y = avg_price, color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 7) +
+  geom_errorbar(
+    aes(ymin = avg_price - sd(avg_price), ymax = avg_price + sd(avg_price)),
+    position = position_dodge(width = 0.8),
+    width = 0.2
+  ) +
+  labs(title = "Average Price by Room Type",
+       x = "Room Type",
+       y = "Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+
+```{r}
+
+average_prices <- subset_df %>%
+  filter(room_type != "Shared room") %>%
+  group_by(room_type, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices, aes(x = room_type, y = avg_price, color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 7) +
+  geom_errorbar(
+    aes(ymin = avg_price - sd(avg_price), ymax = avg_price + sd(avg_price)),
+    position = position_dodge(width = 0.8),
+    width = 0.2
+  ) +
+  labs(title = "Average Price by Room Type",
+       x = "Room Type",
+       y = "Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+
+```
+
+
+
+
+```{r}
+average_prices <- subset_df %>%
+  group_by(room_type, cleanliness_rating, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices, aes(x = cleanliness_rating, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_line(aes(group = room_type), position = position_dodge(width = 0.5), linetype = "dashed") +
+  scale_color_viridis_d() +
+  labs(title = "Average Price for Each Room Type by Cleanliness Rating",
+       x = "Cleanliness Rating",
+       y = "Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_wrap(~day_type)
+```
+
+
+```{r}
+average_prices_capacity <- subset_df %>%
+  group_by(room_type, person_capacity, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+
+ggplot(average_prices_capacity, aes(x = person_capacity, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.8), size = 6) +
+  geom_line(aes(group = room_type), position = position_dodge(width = 0.5), linetype = "dashed") +
+  scale_color_viridis_d() +
+  labs(title = "Log Average Price for Each Room Type by Person Capacity",
+       x = "Person Capacity",
+       y = " Log Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_wrap(~day_type)
+```
+
+```{r}
+average_prices_capacity <- subset_df %>%
+  filter(room_type != "Shared room") %>%
+  group_by(room_type, person_capacity, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices_capacity, aes(x = person_capacity, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.8), size = 6) +
+  geom_line(aes(group = room_type), position = position_dodge(width = 0.5), linetype = "dashed") +
+  scale_color_viridis_d() +
+  labs(title = "Log Average Price for Each Room Type by Person Capacity",
+       x = "Person Capacity",
+       y = " Log Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_wrap(~day_type)
+```
+
+
+```{r}
+average_prices_distance <- subset_df %>%
+  group_by(room_type, dist, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices_distance, aes(x = dist, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_line(aes(group = room_type), position = position_dodge(width = 0.5), linetype = "dashed") +
+  labs(title = "Average Price for Each Room Type by Distance",
+       x = "Distance from City Center",
+       y = "Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_grid(room_type ~ day_type)
+
+
+
+```
+
+
+```{r}
+average_prices_distance <- subset_df %>%
+  group_by(room_type, dist, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+
+ggplot(average_prices_distance, aes(x = dist, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_smooth(aes(group = room_type), method = "loess", se = FALSE) +
+  scale_color_viridis_d() + # Set the color palette to Viridis
+  labs(title = "Average Price for Each Room Type by Distance",
+       x = "Distance from City Center",
+       y = "Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_grid(room_type ~ day_type)
+
+```
+
+```{r}
+average_prices_distance <- subset_df %>%
+  group_by(room_type, dist, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices_distance, aes(x = dist, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3, alpha = 0.5) +
+  geom_smooth(aes(group = room_type), method = "loess", se = FALSE, color = "black") +  # Set the color of the smooth line to red
+  scale_color_viridis_d() +
+  labs(title = "Log Average Price for Each Room Type by Distance",
+       x = "Distance from City Center",
+       y = "Log Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_grid(room_type ~ day_type)
+
+```
+```{r}
+
+
+average_prices_distance <- subset_df %>%
+  filter(room_type != "Shared room") %>%
+  group_by(room_type, dist, day_type) %>%
+  summarize(avg_price = mean(realSum))
+
+ggplot(average_prices_distance, aes(x = dist, y = log(avg_price), color = room_type)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3, alpha = 0.5) +
+  geom_smooth(aes(group = room_type), method = "loess", se = FALSE, color = "black") +
+  scale_color_viridis_d() +
+  labs(title = "Log Average Price for Each Room Type by Distance",
+       x = "Distance from City Center",
+       y = "Log Average Price",
+       color = "Room Type") +
+  theme_minimal() +
+  facet_grid(room_type ~ day_type)
+
+```
+
+
+```{r}
+
+
+ggplot(subset_df, aes(x = log(dist), y = log(realSum), color = host_is_superhost)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Price and Distance",
+       x = "Distance from city center",
+       y = "Price",
+       color = "Host") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+
+```
+
+
+
+# Just Exploring from here:
+
+
+
+```{r}
+ggplot(combined, aes(x = cleanliness_rating, y = realSum, color = room_type)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Cleanliness and Price",
+       x = "Cleanliness",
+       y = "Price",
+       color = "Room Type") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+
+Obsevations:
+
+1. Both on weekends and weekdays if the cleanliness is high the price is higher and the airbnbs generally on the higher end will be of the type of entire home. 
+2. It is also observed that for private rooms it does not matter much if its a weekday or weekend, the prices more or less reamins the same with cleanliness of 6 and above.
+```{r}
+
+df$bedrooms_cat <- as.factor(df$bedrooms)
+
+```
+
+
+
+
+```{r}
+ggplot(df, aes(x = cleanliness_rating, y = realSum, color = bedrooms_cat)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Cleanliness and Price",
+       x = "Cleanliness",
+       y = "Price",
+       color = "No. of bed rooms") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+
+obs:
+1. The highest pricses would be for cleanliness 10 or 8 and aribnbs having bedrooms 0 to 3
+
+
+```{r}
+ggplot(df, aes(x = bedrooms_cat, y = realSum, color = host_is_superhost))  +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Number of bedrooms and Price",
+       x = "Number of bedroooms",
+       y = "Price",
+       color = "Is host superhost") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+Obs:
+1. It can be seen that the price of airbnbs with same bedrooms remain more on less same on a the two days.
+2. generally on the higher end of prices there are superhosts.
+
+
+
+
+
+
+```{r}
+
+
+ggplot(df, aes(x = log(dist), y = log(realSum), color = host_is_superhost)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Price and Distance",
+       x = "Distance from city center",
+       y = "Price",
+       color = "Host") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+
+```
+
+obs:
+1. We can see that in generall on weekdays and weekends as the distance increases the price decreasea for an airbnb
+2. On both the types of the week, there are more non superhosts which have airbnbs from 2-10 on an higher price range.
+
+
+```{r}
+
+ggplot(df, aes(x = cleanliness_rating, y = realSum, color = host_is_superhost)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Cleanliness and Price",
+       x = "Cleanliness",
+       y = "Price",
+       color = "Host") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+
+```
+
+```{r}
+ggplot(df, aes(x = cleanliness_rating, y = guest_satisfaction_overall)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "auto", se = FALSE, linetype = "dashed") +
+  labs(title = "Relation between Cleanliness and Guest Satisfaction",
+       x = "Cleanliness",
+       y = "Guest Satisfaction",
+       color = "Host") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+
+
+```{r}
+ggplot(df, aes(x = cleanliness_rating, y = guest_satisfaction_overall, color = host_is_superhost)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE,) +
+  labs(title = "Relation between Cleanliness and Guest Satisfaction",
+       x = "Cleanliness",
+       y = "Guest Satisfaction",
+       color = "Host") +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~day_type)
+```
+
+
+```{r}
+filtered_df = df[df['realSum'] < 2500,]
+#rm(list = (weekdays,weekends, weekend_data))
+```
+
+
+
+
+### Modelling the relationship between the distance and the price
+
+
+```{r}
+dist.model <- lm(realSum ~ dist + person_capacity, data = filtered_df)
+summary(dist.model)
+```
+
+
+```{r}
+lniear_model <- augment(dist.model,filtered_df)
+```
+
+```{r}
+ggplot(lniear_model, aes(x = dist, y = .resid, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+  scale_color_viridis()+
+    ggtitle("Residuals v/s Distance(Linear model)")+
+  xlab("Distance")+
+  ylab("Residuals")
+```
+From the above residual plot, there is a slight curve for the residual line. We can do better than the existing linear model.
+
+```{r}
+ggplot(lniear_model, aes(x = dist, y = .fitted, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+  scale_color_viridis()+
+    ggtitle("Fitted Values v/s Distance(Linear model)")+
+  xlab("Distance")+
+  ylab("Fitted Values")+ theme_bw()
+```
+
+
+### Fitting a GAM model
+
+
+```{r}
+dist.gam.model <- gam(realSum ~ s(dist) + person_capacity, data = filtered_df)
+summary(dist.gam.model)
+```
+```{r}
+
+gam.df <- augment(dist.gam.model,filtered_df)
+```
+
+#### Plotting the residuals values for the GAM model
+
+```{r}
+ggplot(gam.df, aes(x = dist, y = .resid, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+    ggtitle("Residuals v/s Distance (GAM model)")+
+  xlab("Distance")+
+  ylab("Residuals")
+```
+
+```{r}
+ggplot(gam.df, aes(x = dist, y = .fitted, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+    ggtitle("Fitted values v/s Distance (GAM model)")+
+  xlab("Distance")+
+  ylab("Fitted values")+ theme_bw()
+```
+
+
+
+#### Plotting the log of price v/s log of distance values 
+
+```{r}
+ggplot(gam.df, aes(x = log(dist), y = log(realSum), color=person_capacity)) +
+  geom_point(size=2) +
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+  scale_color_viridis()+
+    ggtitle("Log Price v/s Log Distance")+
+  xlab("Distance")+
+  ylab("Price")
+```
+
+```{r}
+rt.model <- lm(realSum ~ dist, data = filtered_df)
+summary(rt.model)
+```
+
+```{r}
+
+rt.model <- augment(rt.model,filtered_df)
+
+ggplot(rt.model, aes(x = dist, y = .resid, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+  scale_color_viridis()+
+    ggtitle("Residuals v/s Distance (Linear model)")+
+  xlab("Distance")+
+  ylab("Residuals")
+
+ggplot(rt.model, aes(x = dist, y = .fitted, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+  scale_color_viridis()+
+    ggtitle("Fitted Values v/s Distance (Linear model)")+
+  xlab("Distance")+
+  ylab("Fitted values")+ theme_bw()
+
+
+
+```
+
+
+```{r}
+ggplot(gam.df, aes(x = dist, y = .fitted, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+    ggtitle("Fitted values v/s Distance")+
+  xlab("Distance")+
+  ylab("Fitted Values")
+```
+
+
+
+```{r}
+dist.gam.model <- gam(realSum ~ s(dist) , data = filtered_df)
+summary(dist.gam.model)
+```
+```{r}
+gam.df <- augment(dist.gam.model,filtered_df)
+```
+
+```{r}
+ggplot(gam.df, aes(x = dist, y = .resid, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+    ggtitle("Residuals v/s Distance")+
+  xlab("Distance")+
+  ylab("Residuals")
+```
+
+
+```{r}
+ggplot(gam.df, aes(x = dist, y = .fitted, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+    ggtitle("Fitted values v/s Distance(GAM model")+
+  xlab("Distance")+
+  ylab("Fitted Values")
+```
+
+```{r}
+modified <- gam(realSum ~ s(dist) + room_type * person_capacity, data = filtered_df)
+```
+
+
+```{r}
+modified.df <- augment(modified,filtered_df)
+```
+
+```{r}
+ggplot(modified.df, aes(x = dist, y = .resid, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(day_type ~ ., nrow = 1, ncol = 2) + scale_color_viridis()+
+    ggtitle("Residuals v/s Distance")+
+  xlab("Distance")+
+  ylab("Residuals")
+```
+
+```{r}
+ggplot(modified.df, aes(x = dist, y = .fitted, color=person_capacity)) +
+  geom_point(size=2) + geom_smooth(method = "loess", se=FALSE)+
+  facet_wrap(person_capacity~., nrow = 2, ncol = 5) + scale_color_viridis()+
+    ggtitle("Fitted values v/s Distance(GAM model")+
+  xlab("Distance")+
+  ylab("Fitted Values")
+```
+```{r}
+summary(modified)
+```
+```{r}
+# ggplot(df, aes(x = as.factor(person_capacity))) +
+#   geom_bar() +
+#   facet_grid(~ room_type) +
+#   labs(title = "Frequency of Person Capacity by Room Type",
+#        x = "Person Capacity",
+#        y = "Frequency")
+
+ggplot(df, aes(x = as.factor(person_capacity))) +
+  geom_bar() +
+  facet_grid(room_type ~ day_type) +
+  labs(title = "Frequency of Person Capacity by Room Type and Day Type",
+       x = "Person Capacity",
+       y = "Frequency")
+
+```
+
+```{r}
+ggplot(df, aes(x = realSum)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  facet_grid(~day_type) +
+  labs(title = "Smooth Frequency Plot for real_sum",
+       x = "real_sum",
+       y = "Density")
+
+```
+
+
+```{r}
+ggplot(df, aes(x = dist)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  facet_grid(~day_type) +
+  labs(title = "Smooth Frequency Plot for real_sum",
+       x = "real_sum",
+       y = "Density")
+
+```
+
+
+
+For equal distribution, we should use log on real sum
+
+
+```{r}
+d1 = subset_df[subset_df$day_type == "Weekday", ]
+model1 <- gam(log(realSum) ~  s(dist) + person_capacity * room_type, data = d1, method = "REML")
+summary(model1)
+```
+
+```{r}
+d2 = subset_df[subset_df$day_type == "Weekend", ]
+model2 <- gam(log(realSum) ~  s(dist) + person_capacity * room_type, data = d2, method = "REML")
+summary(model2)
+```
+Bigger coefficent for distance suggest that distance matters more on weekend when determinig prices.
+
+```{r}
+#residual plot
+model1.df <- augment(model1, d1)
+ggplot(model1.df, aes(x = dist, y = .resid)) +
+  geom_jitter(height = 0.25, width = 0.5) +
+  geom_smooth()
+```
+
+
+```{r}
+model2.df <- augment(model2, d2)
+ggplot(model2.df, aes(x = dist, y = .resid)) +
+  geom_jitter(height = 0.25, width = 0.5) +
+  geom_smooth()
+
+```
+
+
+
+```{r}
+# head(model1.df)
+#fitted plot
+ggplot(model1.df, aes(x = dist, y = .fitted, color = person_capacity)) +
+  geom_point(size = 1.5, alpha = 0.2) +
+  facet_grid(room_type ~ person_capacity, scales = "free")+
+  #facet_wrap(~day_type , nrow = 1) +
+  scale_color_viridis()+
+  ggtitle("Weekday Fitted values based on Distance, room type, and capacity")+
+  xlab("Distance")+
+  ylab("Fitted Values")+ 
+  theme_minimal()
+
+```
+
+
+```{r}
+ggplot(model2.df, aes(x = dist, y = .fitted, color = person_capacity)) +
+  geom_point(size = 1.5, alpha = 0.2) +
+  facet_grid(room_type ~ person_capacity, scales = "free")+
+  #facet_wrap(~day_type , nrow = 1) +
+  scale_color_viridis()+
+  ggtitle("Weekend Fitted values based on Distance, room type, and capacity")+
+  xlab("Distance")+
+  ylab("Fitted Values")+ 
+  theme_minimal()
+
+
+```
+
+
+```{r}
+#homoskedesticity
+ggplot(model1.df, aes(x = .fitted, y = abs(.resid))) +
+  geom_jitter(width = 0.5) +
+  geom_smooth(method = "lm")
+```
+
